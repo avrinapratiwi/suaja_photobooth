@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "307616880378",
+    "firebase_url": "https://suaja-photobooth-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "suaja-photobooth",
+    "storage_bucket": "suaja-photobooth.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:307616880378:android:d263d7f1ebf7ee6721db43",
+        "android_client_info": {
+          "package_name": "com.suaja.suajaphotobooth"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDxtXHrW7UJVooNmYPQbG4d-1LQEQOJ-Js"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
