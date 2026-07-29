@@ -1,11 +1,11 @@
 {
-    "name": "suajaphotobooth",
-    "short_name": "suajaphotobooth",
+    "name": "Suaja Photobooth",
+    "short_name": "Suaja",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F8FAFC",
+    "theme_color": "#AC282C",
+    "description": "Sistem Kasir dan Admin Suaja Photobooth",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
