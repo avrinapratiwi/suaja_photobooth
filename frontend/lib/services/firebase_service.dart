@@ -891,7 +891,7 @@ class FirebaseService {
         }
       } else { // Aksesoris
         aksesorisQueues.add(q);
-        if (q.status == 'SELESAI' && q.type == 'Booth') {
+        if (q.status == 'SELESAI' && q.type == 'Aksesoris') {
           aksesorisSelesai++;
           if (q.paymentMethod == 'Cash') {
             aksesorisCash += q.totalPayment;
