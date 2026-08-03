@@ -5,6 +5,7 @@ import '../services/firebase_service.dart';
 import '../models/event_model.dart';
 import '../widgets/past_event_card.dart';
 import '../widgets/rekap_detail_view.dart';
+import '../utils/business_day_utils.dart';
 
 class RekapScreen extends StatefulWidget {
   const RekapScreen({super.key});
@@ -74,7 +75,7 @@ class _RekapScreenState extends State<RekapScreen> {
         final dbEvents = snapshot.data ?? [];
         List<EventModel> pastEvents = [];
         
-        final now = DateTime.now();
+        final now = BusinessDayUtils.getBusinessDay();
         final today = DateTime(now.year, now.month, now.day);
         
         for (var event in dbEvents) {

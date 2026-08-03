@@ -5,6 +5,7 @@ import '../models/event_model.dart';
 import '../models/aksesoris_item_model.dart';
 import '../models/set_photobooth_model.dart';
 import '../models/user_model.dart';
+import '../utils/business_day_utils.dart';
 
 class FirebaseService {
   static final FirebaseService _instance = FirebaseService._internal();
@@ -67,6 +68,24 @@ class FirebaseService {
 
   CollectionReference get _usersCollection =>
       FirebaseFirestore.instance.collection('users');
+
+  // Fetch all cashiers (users with role 'kasir')
+  Future<List<UserModel>> getCashiers() async {
+    if (_useDummyData) {
+      return [
+        UserModel(id: 'u1', name: 'Kasir Utama', password: '123', role: 'kasir'),
+        UserModel(id: 'u2', name: 'Kasir Kedua', password: '123', role: 'kasir'),
+      ];
+    }
+    try {
+      final snapshot = await _usersCollection.where('role', isEqualTo: 'kasir').get();
+      return snapshot.docs
+          .map((doc) => UserModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
 
   // Stream active queues for Kasir
   Stream<List<QueueModel>> get activeQueuesStream async* {
@@ -208,7 +227,40 @@ class FirebaseService {
       }
       return;
     }
-    
+
+    // Jika status diubah ke BATAL, kembalikan stok aksesoris jika ada
+    if (status == 'BATAL') {
+      final docSnapshot = await _queueCollection.doc(id).get();
+      if (docSnapshot.exists) {
+        final queueData = docSnapshot.data() as Map<String, dynamic>;
+        final type = queueData['type'] as String? ?? 'Booth';
+        final oldStatus = queueData['status'] as String? ?? '';
+        final items = queueData['items'] as List<dynamic>?;
+
+        // Hanya kembalikan stok jika transaksi aksesoris & sebelumnya BUKAN sudah BATAL
+        if (type == 'Aksesoris' && oldStatus != 'BATAL' && items != null && items.isNotEmpty) {
+          final batch = FirebaseFirestore.instance.batch();
+          batch.update(_queueCollection.doc(id), {
+            'status': status,
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+          for (var item in items) {
+            final itemMap = item as Map<String, dynamic>;
+            final itemId = itemMap['id'] as String?;
+            final qty = itemMap['qty'] as int? ?? 0;
+            if (itemId != null && qty > 0) {
+              final accRef = _accessoriesCollection.doc(itemId);
+              batch.update(accRef, {
+                'stock': FieldValue.increment(qty), // kembalikan stok
+              });
+            }
+          }
+          await batch.commit();
+          return;
+        }
+      }
+    }
+
     await _queueCollection.doc(id).update({
       'status': status,
       'updated_at': FieldValue.serverTimestamp(),
@@ -221,6 +273,34 @@ class FirebaseService {
       _dummyQueues.removeWhere((q) => q.id == id);
       _dummyStreamController.add(List.from(_dummyQueues));
       return;
+    }
+
+    // Kembalikan stok aksesoris sebelum menghapus, jika transaksi belum BATAL
+    final docSnapshot = await _queueCollection.doc(id).get();
+    if (docSnapshot.exists) {
+      final queueData = docSnapshot.data() as Map<String, dynamic>;
+      final type = queueData['type'] as String? ?? 'Booth';
+      final currentStatus = queueData['status'] as String? ?? '';
+      final items = queueData['items'] as List<dynamic>?;
+
+      // Hanya kembalikan stok jika aksesoris & belum BATAL (jika sudah BATAL, stok sudah dikembalikan)
+      if (type == 'Aksesoris' && currentStatus != 'BATAL' && items != null && items.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+        batch.delete(_queueCollection.doc(id));
+        for (var item in items) {
+          final itemMap = item as Map<String, dynamic>;
+          final itemId = itemMap['id'] as String?;
+          final qty = itemMap['qty'] as int? ?? 0;
+          if (itemId != null && qty > 0) {
+            final accRef = _accessoriesCollection.doc(itemId);
+            batch.update(accRef, {
+              'stock': FieldValue.increment(qty), // kembalikan stok
+            });
+          }
+        }
+        await batch.commit();
+        return;
+      }
     }
 
     await _queueCollection.doc(id).delete();
@@ -365,8 +445,8 @@ class FirebaseService {
     }
     
     try {
-      DateTime now = DateTime.now();
-      DateTime startOfDay = DateTime(now.year, now.month, now.day);
+      DateTime today = BusinessDayUtils.getBusinessDay();
+      DateTime startOfDay = DateTime(today.year, today.month, today.day, 6, 0); // 06:00 AM
       
       QuerySnapshot snapshot = await _queueCollection
           .where('created_at', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
@@ -403,9 +483,7 @@ class FirebaseService {
     for (var q in queues) {
       if (q.status == 'SELESAI' && q.type == 'Booth') {
         if (q.createdAt != null && 
-            q.createdAt!.year == date.year && 
-            q.createdAt!.month == date.month && 
-            q.createdAt!.day == date.day) {
+            BusinessDayUtils.getBusinessDayFor(q.createdAt!) == BusinessDayUtils.getBusinessDayFor(date)) {
           count++;
         }
       }
@@ -432,8 +510,8 @@ class FirebaseService {
       }
     }
 
-    final today = DateTime.now();
-    final todayNorm = DateTime(today.year, today.month, today.day);
+    final today = BusinessDayUtils.getBusinessDay();
+    final todayNorm = today;
 
     // Collect all unique calendar days that have an event >= today
     final Set<String> uniqueDays = {};
@@ -452,7 +530,7 @@ class FirebaseService {
 
   /// Total sesi selesai booth hari ini
   Future<int> getTodayBoothSelesaiCount() async {
-    final today = DateTime.now();
+    final today = BusinessDayUtils.getBusinessDay();
     List<QueueModel> queues = [];
     if (_useDummyData) {
       queues = _dummyQueues;
@@ -469,15 +547,13 @@ class FirebaseService {
     }
     return queues.where((q) {
       if (q.createdAt == null) return false;
-      return q.createdAt!.year == today.year &&
-          q.createdAt!.month == today.month &&
-          q.createdAt!.day == today.day;
+      return BusinessDayUtils.getBusinessDayFor(q.createdAt!) == today;
     }).length;
   }
 
   /// Total pendapatan 7 hari terakhir (termasuk hari ini): booth + aksesoris
   Future<int> getLast7DaysRevenue() async {
-    final today = DateTime.now();
+    final today = BusinessDayUtils.getBusinessDay();
     final cutoff = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 6));
     List<QueueModel> queues = [];
     if (_useDummyData) {
@@ -495,7 +571,7 @@ class FirebaseService {
     int total = 0;
     for (var q in queues) {
       if (q.createdAt == null) continue;
-      final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+      final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
       if (!d.isBefore(cutoff)) {
         int payment = q.totalPayment;
         if (q.paymentMethod == 'Split' && q.splitPayments != null) {
@@ -509,7 +585,7 @@ class FirebaseService {
   }
 
   Stream<int> get todayBoothSelesaiCountStream {
-    final today = DateTime.now();
+    final today = BusinessDayUtils.getBusinessDay();
     if (_useDummyData) {
       return Stream.value(_dummyQueues.where((q) =>
         q.status == 'SELESAI' && q.type == 'Booth' &&
@@ -524,15 +600,13 @@ class FirebaseService {
         .snapshots()
         .map((snapshot) => snapshot.docs.map((doc) => QueueModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
             .where((q) => q.createdAt != null &&
-                q.createdAt!.year == today.year &&
-                q.createdAt!.month == today.month &&
-                q.createdAt!.day == today.day)
+                BusinessDayUtils.getBusinessDayFor(q.createdAt!) == today)
             .length)
         .handleError((e) => 0);
   }
 
   Stream<int> get last7DaysRevenueStream {
-    final today = DateTime.now();
+    final today = BusinessDayUtils.getBusinessDay();
     final cutoff = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 6));
     if (_useDummyData) return Stream.value(0);
     return _queueCollection.where('status', isEqualTo: 'SELESAI').snapshots().map((snapshot) {
@@ -540,7 +614,7 @@ class FirebaseService {
       for (var doc in snapshot.docs) {
         final q = QueueModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
         if (q.createdAt == null) continue;
-        final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+        final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
         if (!d.isBefore(cutoff)) {
           int payment = q.totalPayment;
           if (q.paymentMethod == 'Split' && q.splitPayments != null) {
@@ -555,7 +629,7 @@ class FirebaseService {
   }
 
   Stream<int> get last7DaysBoothSelesaiCountStream {
-    final today = DateTime.now();
+    final today = BusinessDayUtils.getBusinessDay();
     final cutoff = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 6));
     if (_useDummyData) return Stream.value(0);
     return _queueCollection
@@ -565,7 +639,7 @@ class FirebaseService {
         .map((snapshot) => snapshot.docs.map((doc) => QueueModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
             .where((q) {
               if (q.createdAt == null) return false;
-              final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+              final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
               return !d.isBefore(cutoff);
             })
             .length)
@@ -573,7 +647,7 @@ class FirebaseService {
   }
 
   Stream<int> get last7DaysAksesorisItemsSoldStream {
-    final today = DateTime.now();
+    final today = BusinessDayUtils.getBusinessDay();
     final cutoff = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 6));
     if (_useDummyData) return Stream.value(0);
     return _queueCollection
@@ -585,7 +659,7 @@ class FirebaseService {
           for (var doc in snapshot.docs) {
             final q = QueueModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
             if (q.createdAt == null) continue;
-            final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+            final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
             if (!d.isBefore(cutoff)) {
               if (q.items != null) {
                 for (var item in q.items!) {
@@ -603,7 +677,7 @@ class FirebaseService {
 
   /// Total sesi selesai booth dalam 7 hari terakhir (termasuk hari ini)
   Future<int> getLast7DaysBoothSelesaiCount() async {
-    final today = DateTime.now();
+    final today = BusinessDayUtils.getBusinessDay();
     final cutoff = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 6));
     List<QueueModel> queues = [];
     if (_useDummyData) {
@@ -621,14 +695,14 @@ class FirebaseService {
     }
     return queues.where((q) {
       if (q.createdAt == null) return false;
-      final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+      final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
       return !d.isBefore(cutoff);
     }).length;
   }
 
   /// Total item aksesoris terjual dalam 7 hari terakhir (termasuk hari ini)
   Future<int> getLast7DaysAksesorisItemsSold() async {
-    final today = DateTime.now();
+    final today = BusinessDayUtils.getBusinessDay();
     final cutoff = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 6));
     List<QueueModel> queues = [];
     if (_useDummyData) {
@@ -647,7 +721,7 @@ class FirebaseService {
     int totalItems = 0;
     for (var q in queues) {
       if (q.createdAt == null) continue;
-      final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+      final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
       if (!d.isBefore(cutoff)) {
         if (q.items != null) {
           for (var item in q.items!) {
@@ -665,8 +739,8 @@ class FirebaseService {
 
   /// Total pendapatan keseluruhan dari semua event yang sudah terlewat atau hari ini
   Future<int> getAllTimeRevenue() async {
-    final today = DateTime.now();
-    final todayNorm = DateTime(today.year, today.month, today.day);
+    final today = BusinessDayUtils.getBusinessDay();
+    final todayNorm = today;
     List<QueueModel> queues = [];
     if (_useDummyData) {
       queues = _dummyQueues;
@@ -683,7 +757,7 @@ class FirebaseService {
     int total = 0;
     for (var q in queues) {
       if (q.createdAt == null) continue;
-      final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+      final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
       if (!d.isAfter(todayNorm)) { // Only today or past
         int payment = q.totalPayment;
         if (q.paymentMethod == 'Split' && q.splitPayments != null) {
@@ -697,14 +771,14 @@ class FirebaseService {
   }
 
   Stream<int> get allTimeRevenueStream {
-    final today = DateTime.now();
-    final todayNorm = DateTime(today.year, today.month, today.day);
+    final today = BusinessDayUtils.getBusinessDay();
+    final todayNorm = today;
     
     if (_useDummyData) {
       int total = 0;
       for (var q in _dummyQueues) {
         if (q.createdAt == null) continue;
-        final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+        final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
         if (!d.isAfter(todayNorm) && q.status == 'SELESAI') {
           int payment = q.totalPayment;
           if (q.paymentMethod == 'Split' && q.splitPayments != null) {
@@ -722,7 +796,7 @@ class FirebaseService {
       for (var doc in snapshot.docs) {
         final q = QueueModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
         if (q.createdAt == null) continue;
-        final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+        final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
         if (!d.isAfter(todayNorm)) {
           int payment = q.totalPayment;
           if (q.paymentMethod == 'Split' && q.splitPayments != null) {
@@ -738,8 +812,8 @@ class FirebaseService {
 
   /// Total sesi booth dari semua event yang sudah terlewat atau hari ini
   Future<int> getAllTimeBoothSelesaiCount() async {
-    final today = DateTime.now();
-    final todayNorm = DateTime(today.year, today.month, today.day);
+    final today = BusinessDayUtils.getBusinessDay();
+    final todayNorm = today;
     List<QueueModel> queues = [];
     if (_useDummyData) {
       queues = _dummyQueues;
@@ -756,19 +830,19 @@ class FirebaseService {
     }
     return queues.where((q) {
       if (q.createdAt == null) return false;
-      final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+      final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
       return !d.isAfter(todayNorm); // Only today or past
     }).length;
   }
 
   Stream<int> get allTimeBoothSelesaiCountStream {
-    final today = DateTime.now();
-    final todayNorm = DateTime(today.year, today.month, today.day);
+    final today = BusinessDayUtils.getBusinessDay();
+    final todayNorm = today;
 
     if (_useDummyData) {
       int count = _dummyQueues.where((q) {
         if (q.status != 'SELESAI' || q.type != 'Booth' || q.createdAt == null) return false;
-        final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+        final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
         return !d.isAfter(todayNorm);
       }).length;
       return Stream.value(count);
@@ -783,7 +857,7 @@ class FirebaseService {
       for (var doc in snapshot.docs) {
         final q = QueueModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
         if (q.createdAt == null) continue;
-        final d = DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day);
+        final d = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
         if (!d.isAfter(todayNorm)) count++;
       }
       return count;
@@ -858,7 +932,8 @@ class FirebaseService {
       }
     }
     
-    // (Date filter removed to include all transactions for this event)
+    // Date filter for per-day item counts
+    final eventDay = DateTime(eventDate.year, eventDate.month, eventDate.day);
     
     List<QueueModel> boothQueues = [];
     List<QueueModel> aksesorisQueues = [];
@@ -872,6 +947,8 @@ class FirebaseService {
     int aksesorisBatal = 0;
     int aksesorisCash = 0;
     int aksesorisQris = 0;
+    int aksesorisItemTerjual = 0; // total qty item aksesoris terjual (SELESAI)
+    int aksesorisItemBatal = 0;  // total qty item aksesoris dibatalkan (BATAL)
     
     for (var q in queues) {
       if (q.type == 'Booth') {
@@ -893,6 +970,13 @@ class FirebaseService {
         aksesorisQueues.add(q);
         if (q.status == 'SELESAI' && q.type == 'Aksesoris') {
           aksesorisSelesai++;
+          // Hitung total qty item terjual (sama seperti kasir mode aksesoris: sum qty)
+          final qDay = q.createdAt != null ? DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day) : null;
+          if (qDay != null && qDay == eventDay && q.items != null) {
+            for (var item in q.items!) {
+              aksesorisItemTerjual += (item['qty'] as num?)?.toInt() ?? 0;
+            }
+          }
           if (q.paymentMethod == 'Cash') {
             aksesorisCash += q.totalPayment;
           } else if (q.paymentMethod == 'QRIS') {
@@ -903,6 +987,13 @@ class FirebaseService {
           }
         } else if (q.status == 'BATAL') {
           aksesorisBatal++;
+          // Hitung total qty item dibatalkan
+          final qDay = q.createdAt != null ? DateTime(q.createdAt!.year, q.createdAt!.month, q.createdAt!.day) : null;
+          if (qDay != null && qDay == eventDay && q.items != null) {
+            for (var item in q.items!) {
+              aksesorisItemBatal += (item['qty'] as num?)?.toInt() ?? 0;
+            }
+          }
         }
       }
     }
@@ -925,6 +1016,8 @@ class FirebaseService {
       'aksesorisBatal': aksesorisBatal,
       'aksesorisCash': aksesorisCash,
       'aksesorisQris': aksesorisQris,
+      'aksesorisItemTerjual': aksesorisItemTerjual,
+      'aksesorisItemBatal': aksesorisItemBatal,
       'komisi': komisi,
       'subTotalBooth': subTotalBooth,
     };
@@ -939,13 +1032,18 @@ class FirebaseService {
     int cancelledCount = 0;
     
     for (var q in queues) {
-      if (q.status == 'SELESAI' && q.type == 'Booth') {
+      if (q.status == 'SELESAI') {
         totalRevenue += q.totalPayment;
-        totalStrips += q.totalStrips;
+        if (q.type == 'Booth') {
+          totalStrips += q.totalStrips;
+        }
         if (q.paymentMethod == 'Cash') {
           totalCash += q.totalPayment;
-        } else {
+        } else if (q.paymentMethod == 'QRIS') {
           totalQris += q.totalPayment;
+        } else if (q.paymentMethod == 'Split' && q.splitPayments != null) {
+          totalCash += (q.splitPayments!['Cash'] ?? 0) as int;
+          totalQris += (q.splitPayments!['QRIS'] ?? 0) as int;
         }
       } else if (q.status == 'BATAL') {
         cancelledCount++;

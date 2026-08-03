@@ -1886,16 +1886,16 @@ class KasirScreenState extends State<KasirScreen> {
                           children: [
                             Expanded(
                               child: _buildAksesorisPaymentButton(
-                                'QRIS',
-                                LucideIcons.qrCode,
+                                'Cash',
+                                LucideIcons.banknote,
                                 _primaryColor,
                               ),
                             ),
                             const SizedBox(width: 16),
                             Expanded(
                               child: _buildAksesorisPaymentButton(
-                                'Cash',
-                                LucideIcons.banknote,
+                                'QRIS',
+                                LucideIcons.qrCode,
                                 _primaryColor,
                               ),
                             ),
@@ -2058,34 +2058,35 @@ class KasirScreenState extends State<KasirScreen> {
     Color primaryColor,
   ) {
     final isSelected = _aksesorisPaymentMethod == method;
+    final Color activeColor = method == 'Cash' ? const Color(0xFF16A34A) : const Color(0xFF2563EB);
     return InkWell(
       onTap: () => setState(() => _aksesorisPaymentMethod = method),
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 28),
         decoration: BoxDecoration(
-          color: isSelected
-              ? primaryColor.withValues(alpha: 0.1)
-              : const Color(0xFFF8FAFC),
+          color: isSelected ? activeColor.withValues(alpha: 0.1) : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? primaryColor : Colors.black12,
-            width: isSelected ? 2 : 1,
+            color: isSelected ? activeColor : Colors.black12,
+            width: isSelected ? 2.5 : 1,
           ),
         ),
         child: Column(
           children: [
             Icon(
               icon,
-              color: isSelected ? primaryColor : const Color(0xFF64748B),
-              size: 28,
+              color: isSelected ? activeColor : const Color(0xFF94A3B8),
+              size: 36,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Text(
               method,
               style: TextStyle(
+                fontSize: 16,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? primaryColor : const Color(0xFF64748B),
+                color: isSelected ? activeColor : const Color(0xFF64748B),
                 letterSpacing: 1,
               ),
             ),
@@ -2404,7 +2405,7 @@ class _AddQueueSheetState extends State<_AddQueueSheet> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   int _selectedStrips = 2;
-  String _paymentMethod = 'QRIS';
+  String _paymentMethod = 'Cash';
 
   // Split payment state
   bool _isSplitPayment = false;
@@ -2788,16 +2789,16 @@ class _AddQueueSheetState extends State<_AddQueueSheet> {
                         children: [
                           Expanded(
                             child: _buildPaymentButton(
-                              'QRIS',
-                              LucideIcons.qrCode,
+                              'Cash',
+                              LucideIcons.banknote,
                               widget.primaryColor,
                             ),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
                             child: _buildPaymentButton(
-                              'Cash',
-                              LucideIcons.banknote,
+                              'QRIS',
+                              LucideIcons.qrCode,
                               widget.primaryColor,
                             ),
                           ),
@@ -2984,34 +2985,35 @@ class _AddQueueSheetState extends State<_AddQueueSheet> {
 
   Widget _buildPaymentButton(String method, IconData icon, Color primaryColor) {
     final isSelected = _paymentMethod == method;
+    final Color activeColor = method == 'Cash' ? const Color(0xFF16A34A) : const Color(0xFF2563EB);
     return InkWell(
       onTap: () => setState(() => _paymentMethod = method),
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 28),
         decoration: BoxDecoration(
-          color: isSelected
-              ? primaryColor.withValues(alpha: 0.1)
-              : const Color(0xFFF8FAFC),
+          color: isSelected ? activeColor.withValues(alpha: 0.1) : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? primaryColor : Colors.black12,
-            width: isSelected ? 2 : 1,
+            color: isSelected ? activeColor : Colors.black12,
+            width: isSelected ? 2.5 : 1,
           ),
         ),
         child: Column(
           children: [
             Icon(
               icon,
-              color: isSelected ? primaryColor : const Color(0xFF64748B),
-              size: 28,
+              color: isSelected ? activeColor : const Color(0xFF94A3B8),
+              size: 36,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Text(
               method,
               style: TextStyle(
+                fontSize: 16,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? primaryColor : const Color(0xFF64748B),
+                color: isSelected ? activeColor : const Color(0xFF64748B),
                 letterSpacing: 1,
               ),
             ),

@@ -7,6 +7,7 @@ import '../models/queue_model.dart';
 import '../services/firebase_service.dart';
 import '../screens/report_screen.dart';
 import '../screens/checklist_screen.dart';
+import '../utils/business_day_utils.dart';
 
 class AnimatedEventCard extends StatefulWidget {
   final EventModel event;
@@ -30,7 +31,7 @@ class _AnimatedEventCardState extends State<AnimatedEventCard> {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = BusinessDayUtils.getBusinessDay();
     final todayDate = DateTime(now.year, now.month, now.day);
     final eventDate = DateTime(widget.event.date.year, widget.event.date.month, widget.event.date.day);
     final isPast = eventDate.isBefore(todayDate);
@@ -166,9 +167,10 @@ class _AnimatedEventCardState extends State<AnimatedEventCard> {
                                   if (q.status != 'SELESAI') return false;
                                   if (q.type != 'Booth') return false;
                                   if (q.createdAt == null) return false;
-                                  return q.createdAt!.year == eventDate.year &&
-                                         q.createdAt!.month == eventDate.month &&
-                                         q.createdAt!.day == eventDate.day;
+                                  final qDate = BusinessDayUtils.getBusinessDayFor(q.createdAt!);
+                                  return qDate.year == eventDate.year &&
+                                         qDate.month == eventDate.month &&
+                                         qDate.day == eventDate.day;
                                 }).length;
                               }
                               return Text(
